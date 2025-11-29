@@ -324,38 +324,31 @@
             gatewayOptions += '<option value="' + gateway.value + '">' + gateway.label + '</option>';
         });
 
-        var checkDetailsHTML = '';
-        if (checkData && checkData.total_parcels !== undefined) {
-            checkDetailsHTML = '<div style="background:#fff3cd; border-left:4px solid #f56e28; padding:12px 15px; margin-bottom:20px; border-radius:4px;">' +
-                '<p style="margin:0 0 8px 0; font-size:13px; color:#856404; font-weight:600;">Verification Results:</p>' +
-                '<p style="margin:0; font-size:12px; color:#856404; line-height:1.6;">' +
-                'Total Orders: <strong>' + checkData.total_parcels + '</strong> | ' +
-                'Successful: <strong>' + checkData.delivered + '</strong> | ' +
-                'Success Rate: <strong>' + checkData.score + '%</strong>' +
-                '</p>' +
-                '<p style="margin:8px 0 0 0; font-size:12px; color:#856404;">' +
-                'Required: <strong>' + checkData.minimum_orders + '+ orders</strong> with <strong>' + checkData.minimum_score + '%+ success rate</strong>' +
-                '</p>' +
+        var gatewaySelectHTML = '';
+        if (availableGateways.length > 0) {
+            gatewaySelectHTML = '<div style="margin:20px 0;">' +
+                '<label for="fps-payment-method" style="display:block; margin-bottom:10px; font-weight:600;">Select Payment Method:</label>' +
+                '<select id="fps-payment-method" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:4px; font-size:14px;">' +
+                gatewayOptions +
+                '</select>' +
+                '</div>';
+        } else {
+            gatewaySelectHTML = '<div style="background:#f9e2e2; border-left:4px solid #dc3232; padding:12px 15px; margin:20px 0; border-radius:4px;">' +
+                '<p style="margin:0; font-size:13px; color:#dc3232; font-weight:600;">No alternative payment methods available. Please contact support.</p>' +
                 '</div>';
         }
 
         var modalHTML = '<div id="fps-payment-modal" style="display:block; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:9999;">' +
             '<div style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); background:white; padding:30px; border-radius:8px; max-width:500px; width:90%; box-shadow:0 4px 20px rgba(0,0,0,0.3);">' +
             '<h2 style="margin-top:0; color:#333;">Advance Payment Required</h2>' +
-            checkDetailsHTML +
-            '<p style="color:#666;">Please pay the delivery charges in advance to proceed with your order.</p>' +
+            '<p style="color:#666; font-size:15px; line-height:1.6;">Cash on Delivery is not available for your order. Please pay the delivery charges in advance to proceed.</p>' +
             '<p style="font-size:18px; font-weight:bold; color:#0073aa;">Amount to pay: ' + currencySymbol + chargeAmount.toFixed(2) + '</p>' +
-            '<div style="margin:20px 0;">' +
-            '<label for="fps-payment-method" style="display:block; margin-bottom:10px; font-weight:600;">Select Payment Method:</label>' +
-            '<select id="fps-payment-method" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:4px; font-size:14px;">' +
-            gatewayOptions +
-            '</select>' +
-            '</div>' +
+            gatewaySelectHTML +
             '<div style="background:#f9f9f9; padding:15px; border-radius:4px; margin-bottom:20px;">' +
             '<p style="margin:0; font-size:13px; color:#666;"><strong>Note:</strong> After successful payment of the delivery charge, you will be able to complete your order. The advance payment will be deducted from your order total.</p>' +
             '</div>' +
             '<div style="display:flex; gap:10px; margin-top:20px;">' +
-            '<button id="fps-proceed-payment" style="flex:1; padding:12px 20px; background:#0073aa; color:white; border:none; border-radius:4px; cursor:pointer; font-weight:600;">Proceed to Payment</button>' +
+            '<button id="fps-proceed-payment" style="flex:1; padding:12px 20px; background:#0073aa; color:white; border:none; border-radius:4px; cursor:pointer; font-weight:600;" ' + (availableGateways.length === 0 ? 'disabled' : '') + '>Proceed to Payment</button>' +
             '<button id="fps-cancel-payment" style="flex:1; padding:12px 20px; background:#ddd; color:#333; border:none; border-radius:4px; cursor:pointer; font-weight:600;">Cancel</button>' +
             '</div>' +
             '</div>' +
@@ -368,7 +361,20 @@
         });
 
         $('#fps-proceed-payment').on('click', function() {
+            if (availableGateways.length === 0) {
+                console.log('%c[Fraud Prevention] No payment gateways available, blocking order', 'color: #dc3232; font-weight: bold;');
+                return;
+            }
+
             var selectedGateway = $('#fps-payment-method').val();
+
+            if (!selectedGateway) {
+                console.log('%c[Fraud Prevention] No payment method selected, blocking order', 'color: #dc3232; font-weight: bold;');
+                return;
+            }
+
+            console.log('%c[Fraud Prevention] Switching to payment method:', 'color: #0073aa; font-weight: bold;', selectedGateway);
+
             $('input[name="payment_method"][value="' + selectedGateway + '"]').prop('checked', true).trigger('change');
             $('#fps-payment-modal').remove();
             fraudCheckPassed = true;
