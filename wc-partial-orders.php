@@ -238,7 +238,7 @@ class WC_Partial_Orders {
             'wc-partial-orders',
             plugins_url('js/partial-orders.js', __FILE__),
             ['jquery'],
-            '1.0.2',
+            '2.0.0',
             true
         );
 
