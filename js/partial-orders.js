@@ -149,4 +149,161 @@ jQuery(function ($) {
             localStorage.removeItem('partial_order_key');
             console.log('Order completed, partial order data cleared.');
         });
+
+    let fraudCheckInProgress = false;
+    let fraudCheckPassed = false;
+
+    $('form.checkout').on('checkout_place_order', function(e) {
+        const paymentMethod = $('input[name="payment_method"]:checked').val();
+
+        if (paymentMethod !== 'cod') {
+            return true;
+        }
+
+        if (fraudCheckPassed) {
+            return true;
+        }
+
+        if (fraudCheckInProgress) {
+            return false;
+        }
+
+        const billingPhone = $('input[name="billing_phone"]').val();
+
+        if (!billingPhone) {
+            return true;
+        }
+
+        fraudCheckInProgress = true;
+
+        $.ajax({
+            url: wcPartialOrders.ajax_url,
+            type: 'POST',
+            data: {
+                action: 'check_fraud_prevention',
+                nonce: wcPartialOrders.fraud_nonce,
+                phone: billingPhone
+            },
+            success: function(response) {
+                if (response.success && response.data) {
+                    if (response.data.passed) {
+                        fraudCheckPassed = true;
+                        $('form.checkout').submit();
+                    } else {
+                        showAdvancePaymentModal();
+                    }
+                } else {
+                    fraudCheckPassed = true;
+                    $('form.checkout').submit();
+                }
+            },
+            error: function() {
+                fraudCheckPassed = true;
+                $('form.checkout').submit();
+            },
+            complete: function() {
+                fraudCheckInProgress = false;
+            }
+        });
+
+        return false;
+    });
+
+    function showAdvancePaymentModal() {
+        if ($('#fps-payment-modal').length) {
+            $('#fps-payment-modal').show();
+            return;
+        }
+
+        const shippingTotal = parseFloat($('.shipping .woocommerce-Price-amount').text().replace(/[^0-9.]/g, '')) || 0;
+        const customCharge = wcPartialOrders.custom_cod_charge;
+        const chargeAmount = customCharge ? parseFloat(customCharge) : shippingTotal;
+
+        const currencySymbol = $('.woocommerce-Price-currencySymbol').first().text() || '';
+
+        const availableGateways = [];
+        $('.wc_payment_methods .wc_payment_method').each(function() {
+            const input = $(this).find('input.input-radio');
+            const label = $(this).find('label').text().trim();
+            const value = input.val();
+
+            if (value !== 'cod') {
+                availableGateways.push({
+                    value: value,
+                    label: label
+                });
+            }
+        });
+
+        let gatewayOptions = '';
+        availableGateways.forEach(function(gateway) {
+            gatewayOptions += `<option value="${gateway.value}">${gateway.label}</option>`;
+        });
+
+        const modalHTML = `
+            <div id="fps-payment-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:9999;">
+                <div style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); background:white; padding:30px; border-radius:8px; max-width:500px; width:90%; box-shadow:0 4px 20px rgba(0,0,0,0.3);">
+                    <h2 style="margin-top:0; color:#333;">Advance Payment Required</h2>
+                    <p style="color:#666;">Please pay the delivery charges in advance to proceed with your order.</p>
+                    <p style="font-size:18px; font-weight:bold; color:#0073aa;">Amount to pay: ${currencySymbol}${chargeAmount.toFixed(2)}</p>
+
+                    <div style="margin:20px 0;">
+                        <label for="fps-payment-method" style="display:block; margin-bottom:10px; font-weight:600;">Select Payment Method:</label>
+                        <select id="fps-payment-method" style="width:100%; padding:10px; border:1px solid #ddd; border-radius:4px; font-size:14px;">
+                            ${gatewayOptions}
+                        </select>
+                    </div>
+
+                    <div style="background:#f9f9f9; padding:15px; border-radius:4px; margin-bottom:20px;">
+                        <p style="margin:0; font-size:13px; color:#666;">
+                            <strong>Note:</strong> After successful payment of the delivery charge, you will be able to complete your order. The advance payment will be deducted from your order total.
+                        </p>
+                    </div>
+
+                    <div style="display:flex; gap:10px; margin-top:20px;">
+                        <button id="fps-proceed-payment" style="flex:1; padding:12px 20px; background:#0073aa; color:white; border:none; border-radius:4px; cursor:pointer; font-weight:600; transition:background 0.3s;">Proceed to Payment</button>
+                        <button id="fps-cancel-payment" style="flex:1; padding:12px 20px; background:#ddd; color:#333; border:none; border-radius:4px; cursor:pointer; font-weight:600; transition:background 0.3s;">Cancel</button>
+                    </div>
+                </div>
+            </div>
+        `;
+
+        $('body').append(modalHTML);
+
+        $('#fps-proceed-payment').on('mouseenter', function() {
+            $(this).css('background', '#005177');
+        }).on('mouseleave', function() {
+            $(this).css('background', '#0073aa');
+        });
+
+        $('#fps-cancel-payment').on('mouseenter', function() {
+            $(this).css('background', '#ccc');
+        }).on('mouseleave', function() {
+            $(this).css('background', '#ddd');
+        });
+
+        $('#fps-cancel-payment').on('click', function() {
+            $('#fps-payment-modal').hide();
+        });
+
+        $('#fps-proceed-payment').on('click', function() {
+            const selectedGateway = $('#fps-payment-method').val();
+
+            const originalPaymentMethod = $('input[name="payment_method"]:checked').val();
+
+            $('input[name="payment_method"][value="' + selectedGateway + '"]').prop('checked', true).trigger('change');
+
+            $('#fps-payment-modal').hide();
+
+            fraudCheckPassed = true;
+
+            $('form.checkout').one('checkout_place_order_success', function(event, result) {
+                if (result && result.result === 'success') {
+                    $('input[name="payment_method"][value="' + originalPaymentMethod + '"]').prop('checked', true);
+                }
+            });
+
+            $('form.checkout').submit();
+        });
+    }
 });

@@ -22,6 +22,9 @@ Features:
 * Cleans up partial orders when checkout is completed
 * Supports guest checkout and logged-in users
 * Handles cart updates during checkout
+* Fraud Prevention System with API integration
+* Requires advance payment for risky orders
+* Configurable minimum order count and success rate thresholds
 
 == Installation ==
 

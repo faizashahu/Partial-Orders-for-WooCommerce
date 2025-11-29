@@ -54,7 +54,7 @@ class WC_Partial_Orders {
     public function __construct() {
         register_activation_hook(__FILE__, [$this, 'activate']);
         register_deactivation_hook(__FILE__, [$this, 'deactivate']);
-        
+
         add_action('init', [$this, 'init']);
         add_action('wp_enqueue_scripts', [$this, 'enqueue_scripts']);
         add_action('wp_ajax_save_partial_order', [$this, 'save_partial_order']);
@@ -67,6 +67,17 @@ class WC_Partial_Orders {
         add_filter('manage_edit-shop_order_columns', [$this, 'add_order_columns']);
         add_action('manage_shop_order_posts_custom_column', [$this, 'order_column_content'], 10, 2);
         add_filter('woocommerce_admin_order_actions', [$this, 'add_admin_order_actions'], 10, 2);
+
+        // Admin menu and settings
+        add_action('admin_menu', [$this, 'add_admin_menu']);
+        add_action('admin_init', [$this, 'register_settings']);
+
+        // Fraud prevention
+        add_action('wp_ajax_check_fraud_prevention', [$this, 'check_fraud_prevention']);
+        add_action('wp_ajax_nopriv_check_fraud_prevention', [$this, 'check_fraud_prevention']);
+        add_action('woocommerce_after_checkout_validation', [$this, 'validate_checkout_fraud'], 10, 2);
+        add_action('woocommerce_thankyou', [$this, 'check_advance_payment_completion'], 5, 1);
+        add_action('woocommerce_checkout_create_order', [$this, 'check_and_apply_advance_payment'], 10, 2);
     }
 
     /**
@@ -233,7 +244,9 @@ class WC_Partial_Orders {
 
         wp_localize_script('wc-partial-orders', 'wcPartialOrders', [
             'ajax_url' => admin_url('admin-ajax.php'),
-            'nonce' => wp_create_nonce('save_partial_order')
+            'nonce' => wp_create_nonce('save_partial_order'),
+            'fraud_nonce' => wp_create_nonce('wc_fraud_check'),
+            'custom_cod_charge' => get_option('fps_custom_cod_charge', '')
         ]);
     }
 
@@ -511,6 +524,318 @@ class WC_Partial_Orders {
             ];
         }
         return $actions;
+    }
+
+    public function add_admin_menu() {
+        add_menu_page(
+            __('Fraud Prevention System', 'partial-orders-for-woocommerce'),
+            __('Fraud Prevention System', 'partial-orders-for-woocommerce'),
+            'manage_woocommerce',
+            'fraud-prevention-system',
+            [$this, 'render_admin_page'],
+            'dashicons-shield',
+            56
+        );
+    }
+
+    public function register_settings() {
+        register_setting('fraud_prevention_settings', 'fps_enabled');
+        register_setting('fraud_prevention_settings', 'fps_api_key');
+        register_setting('fraud_prevention_settings', 'fps_api_secret');
+        register_setting('fraud_prevention_settings', 'fps_minimum_score');
+        register_setting('fraud_prevention_settings', 'fps_minimum_orders');
+        register_setting('fraud_prevention_settings', 'fps_custom_cod_charge');
+    }
+
+    public function render_admin_page() {
+        if (!current_user_can('manage_woocommerce')) {
+            return;
+        }
+
+        if (isset($_POST['submit']) && check_admin_referer('fps_settings_save', 'fps_nonce')) {
+            update_option('fps_enabled', isset($_POST['fps_enabled']) ? '1' : '0');
+            update_option('fps_api_key', sanitize_text_field($_POST['fps_api_key']));
+            update_option('fps_api_secret', sanitize_text_field($_POST['fps_api_secret']));
+            update_option('fps_minimum_score', absint($_POST['fps_minimum_score']));
+            update_option('fps_minimum_orders', absint($_POST['fps_minimum_orders']));
+            update_option('fps_custom_cod_charge', sanitize_text_field($_POST['fps_custom_cod_charge']));
+
+            echo '<div class="notice notice-success"><p>' . esc_html__('Settings saved successfully.', 'partial-orders-for-woocommerce') . '</p></div>';
+        }
+
+        $fps_enabled = get_option('fps_enabled', '0');
+        $fps_api_key = get_option('fps_api_key', '');
+        $fps_api_secret = get_option('fps_api_secret', '');
+        $fps_minimum_score = get_option('fps_minimum_score', '70');
+        $fps_minimum_orders = get_option('fps_minimum_orders', '1');
+        $fps_custom_cod_charge = get_option('fps_custom_cod_charge', '');
+
+        ?>
+        <div class="wrap">
+            <h1><?php echo esc_html__('Fraud Prevention System', 'partial-orders-for-woocommerce'); ?></h1>
+
+            <form method="post" action="">
+                <?php wp_nonce_field('fps_settings_save', 'fps_nonce'); ?>
+
+                <table class="form-table">
+                    <tr>
+                        <th scope="row">
+                            <label for="fps_enabled"><?php echo esc_html__('Enable Fraud Prevention', 'partial-orders-for-woocommerce'); ?></label>
+                        </th>
+                        <td>
+                            <input type="checkbox" id="fps_enabled" name="fps_enabled" value="1" <?php checked($fps_enabled, '1'); ?> />
+                            <p class="description"><?php echo esc_html__('Enable fraud prevention checks at checkout', 'partial-orders-for-woocommerce'); ?></p>
+                        </td>
+                    </tr>
+                </table>
+
+                <div id="fps_settings_container" style="<?php echo $fps_enabled === '1' ? '' : 'display:none;'; ?>">
+                    <table class="form-table">
+                        <tr>
+                            <th scope="row">
+                                <label for="fps_api_key"><?php echo esc_html__('API Key', 'partial-orders-for-woocommerce'); ?></label>
+                            </th>
+                            <td>
+                                <input type="text" id="fps_api_key" name="fps_api_key" value="<?php echo esc_attr($fps_api_key); ?>" class="regular-text" />
+                                <p class="description"><?php echo esc_html__('Your Nirvor API key', 'partial-orders-for-woocommerce'); ?></p>
+                            </td>
+                        </tr>
+
+                        <tr>
+                            <th scope="row">
+                                <label for="fps_api_secret"><?php echo esc_html__('API Secret', 'partial-orders-for-woocommerce'); ?></label>
+                            </th>
+                            <td>
+                                <input type="password" id="fps_api_secret" name="fps_api_secret" value="<?php echo esc_attr($fps_api_secret); ?>" class="regular-text" />
+                                <p class="description"><?php echo esc_html__('Your Nirvor API secret', 'partial-orders-for-woocommerce'); ?></p>
+                            </td>
+                        </tr>
+
+                        <tr>
+                            <th scope="row">
+                                <label for="fps_minimum_score"><?php echo esc_html__('Minimum Score (%)', 'partial-orders-for-woocommerce'); ?></label>
+                            </th>
+                            <td>
+                                <input type="number" id="fps_minimum_score" name="fps_minimum_score" value="<?php echo esc_attr($fps_minimum_score); ?>" min="0" max="100" />
+                                <p class="description"><?php echo esc_html__('Minimum percentage of successful deliveries required', 'partial-orders-for-woocommerce'); ?></p>
+                            </td>
+                        </tr>
+
+                        <tr>
+                            <th scope="row">
+                                <label for="fps_minimum_orders"><?php echo esc_html__('Minimum Orders', 'partial-orders-for-woocommerce'); ?></label>
+                            </th>
+                            <td>
+                                <input type="number" id="fps_minimum_orders" name="fps_minimum_orders" value="<?php echo esc_attr($fps_minimum_orders); ?>" min="1" />
+                                <p class="description"><?php echo esc_html__('Minimum number of orders required', 'partial-orders-for-woocommerce'); ?></p>
+                            </td>
+                        </tr>
+
+                        <tr>
+                            <th scope="row">
+                                <label for="fps_custom_cod_charge"><?php echo esc_html__('Custom COD Charge', 'partial-orders-for-woocommerce'); ?></label>
+                            </th>
+                            <td>
+                                <input type="text" id="fps_custom_cod_charge" name="fps_custom_cod_charge" value="<?php echo esc_attr($fps_custom_cod_charge); ?>" class="small-text" />
+                                <p class="description"><?php echo esc_html__('Fixed amount to charge in advance (leave empty to use shipping fees)', 'partial-orders-for-woocommerce'); ?></p>
+                            </td>
+                        </tr>
+                    </table>
+                </div>
+
+                <?php submit_button(); ?>
+            </form>
+        </div>
+
+        <script>
+        jQuery(function($) {
+            $('#fps_enabled').on('change', function() {
+                if ($(this).is(':checked')) {
+                    $('#fps_settings_container').slideDown();
+                } else {
+                    $('#fps_settings_container').slideUp();
+                }
+            });
+        });
+        </script>
+        <?php
+    }
+
+    public function check_fraud_prevention() {
+        check_ajax_referer('wc_fraud_check', 'nonce');
+
+        $phone = isset($_POST['phone']) ? sanitize_text_field($_POST['phone']) : '';
+
+        if (empty($phone)) {
+            wp_send_json_error(['message' => 'Phone number is required']);
+        }
+
+        $fps_enabled = get_option('fps_enabled', '0');
+
+        if ($fps_enabled !== '1') {
+            wp_send_json_success(['passed' => true]);
+        }
+
+        $api_key = get_option('fps_api_key', '');
+        $api_secret = get_option('fps_api_secret', '');
+        $minimum_score = (int) get_option('fps_minimum_score', 70);
+        $minimum_orders = (int) get_option('fps_minimum_orders', 1);
+
+        if (empty($api_key) || empty($api_secret)) {
+            wp_send_json_success(['passed' => true]);
+        }
+
+        $response = wp_remote_post('https://nirvor.app/api/v1/search', [
+            'headers' => [
+                'Content-Type' => 'application/json',
+                'X-API-Key' => $api_key,
+                'X-API-Secret' => $api_secret
+            ],
+            'body' => wp_json_encode(['phone' => $phone]),
+            'timeout' => 10
+        ]);
+
+        if (is_wp_error($response)) {
+            wp_send_json_success(['passed' => true]);
+        }
+
+        $body = wp_remote_retrieve_body($response);
+        $result = json_decode($body, true);
+
+        if (!isset($result['success']) || !$result['success']) {
+            wp_send_json_success(['passed' => true]);
+        }
+
+        $total_parcels = isset($result['overall']['total_parcels']) ? (int) $result['overall']['total_parcels'] : 0;
+        $delivered = isset($result['overall']['delivered']) ? (int) $result['overall']['delivered'] : 0;
+
+        $score = $total_parcels > 0 ? ($delivered / $total_parcels) * 100 : 0;
+
+        $passed = ($total_parcels >= $minimum_orders) && ($score >= $minimum_score);
+
+        wp_send_json_success([
+            'passed' => $passed,
+            'total_parcels' => $total_parcels,
+            'delivered' => $delivered,
+            'score' => round($score, 2),
+            'minimum_score' => $minimum_score,
+            'minimum_orders' => $minimum_orders
+        ]);
+    }
+
+    public function validate_checkout_fraud($data, $errors) {
+        $fps_enabled = get_option('fps_enabled', '0');
+
+        if ($fps_enabled !== '1') {
+            return;
+        }
+
+        $chosen_payment_method = isset($_POST['payment_method']) ? sanitize_text_field($_POST['payment_method']) : '';
+
+        if ($chosen_payment_method !== 'cod') {
+            return;
+        }
+
+        $advance_payment_verified = WC()->session->get('fps_advance_payment_verified', false);
+
+        if ($advance_payment_verified) {
+            WC()->session->set('fps_advance_payment_verified', false);
+            return;
+        }
+
+        $phone = isset($data['billing_phone']) ? sanitize_text_field($data['billing_phone']) : '';
+
+        if (empty($phone)) {
+            return;
+        }
+
+        $api_key = get_option('fps_api_key', '');
+        $api_secret = get_option('fps_api_secret', '');
+        $minimum_score = (int) get_option('fps_minimum_score', 70);
+        $minimum_orders = (int) get_option('fps_minimum_orders', 1);
+
+        if (empty($api_key) || empty($api_secret)) {
+            return;
+        }
+
+        $response = wp_remote_post('https://nirvor.app/api/v1/search', [
+            'headers' => [
+                'Content-Type' => 'application/json',
+                'X-API-Key' => $api_key,
+                'X-API-Secret' => $api_secret
+            ],
+            'body' => wp_json_encode(['phone' => $phone]),
+            'timeout' => 10
+        ]);
+
+        if (is_wp_error($response)) {
+            return;
+        }
+
+        $body = wp_remote_retrieve_body($response);
+        $result = json_decode($body, true);
+
+        if (!isset($result['success']) || !$result['success']) {
+            return;
+        }
+
+        $total_parcels = isset($result['overall']['total_parcels']) ? (int) $result['overall']['total_parcels'] : 0;
+        $delivered = isset($result['overall']['delivered']) ? (int) $result['overall']['delivered'] : 0;
+
+        $score = $total_parcels > 0 ? ($delivered / $total_parcels) * 100 : 0;
+
+        $passed = ($total_parcels >= $minimum_orders) && ($score >= $minimum_score);
+
+        if (!$passed) {
+            $errors->add('fraud_prevention', __('Please pay delivery charges in advance to proceed with your order.', 'partial-orders-for-woocommerce'));
+        }
+    }
+
+    public function check_advance_payment_completion($order_id) {
+        $order = wc_get_order($order_id);
+
+        if (!$order) {
+            return;
+        }
+
+        if ($order->get_payment_method() === 'cod') {
+            return;
+        }
+
+        if ($order->is_paid() || $order->has_status(['processing', 'completed'])) {
+            WC()->session->set('fps_advance_payment_verified', true);
+            WC()->session->set('fps_advance_payment_amount', $order->get_total());
+            WC()->session->set('fps_advance_payment_order_id', $order_id);
+
+            $order->update_meta_data('_fps_is_advance_payment', 'yes');
+            $order->save();
+        }
+    }
+
+    public function check_and_apply_advance_payment($order, $data) {
+        $advance_payment_order_id = WC()->session->get('fps_advance_payment_order_id', 0);
+        $advance_payment_amount = WC()->session->get('fps_advance_payment_amount', 0);
+
+        if ($advance_payment_order_id && $advance_payment_amount > 0) {
+            $fee = new WC_Order_Item_Fee();
+            $fee->set_name(__('Advance Payment Credit', 'partial-orders-for-woocommerce'));
+            $fee->set_amount(-$advance_payment_amount);
+            $fee->set_total(-$advance_payment_amount);
+            $order->add_item($fee);
+
+            $order->update_meta_data('_fps_advance_payment_order_id', $advance_payment_order_id);
+            $order->add_order_note(
+                sprintf(
+                    __('Advance payment of %s deducted from order total (Order #%d)', 'partial-orders-for-woocommerce'),
+                    wc_price($advance_payment_amount),
+                    $advance_payment_order_id
+                )
+            );
+
+            WC()->session->set('fps_advance_payment_order_id', 0);
+            WC()->session->set('fps_advance_payment_amount', 0);
+            WC()->session->set('fps_advance_payment_verified', false);
+        }
     }
 }
 
