@@ -144,14 +144,72 @@ Result: Customers need at least 1 order with 50%+ success rate. Failed customers
 4. **Graceful Failures**: API errors don't block legitimate customers
 5. **Session Management**: Prevents replay attacks
 
+## Console Logging
+
+The system provides detailed console logs for debugging and monitoring. Open browser console (F12) during checkout to view:
+
+### When Check is Bypassed
+```
+[Fraud Prevention] Check Bypassed
+Reason: Fraud prevention is disabled / API credentials not configured / API error
+✓ Order Allowed
+```
+
+### When Check is Performed (Passed)
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[Fraud Prevention] API Response Received
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Phone Number: 01712345678
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Delivery Statistics:
+Total Deliveries: 124
+Successful Deliveries: 122
+Cancelled/Returned: 2
+Success Score: 98.39%
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Required Thresholds:
+Minimum Orders: 5
+Minimum Score: 70%
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Validation Results:
+Minimum Orders Check: ✓ PASSED (color: green)
+  → Required: 5 | Actual: 124
+Minimum Score Check: ✓ PASSED (color: green)
+  → Required: 70% | Actual: 98.39%
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✓ FRAUD CHECK PASSED - Order Allowed
+```
+
+### When Check Fails (Blocked)
+Same format as above, but ends with:
+```
+Validation Results:
+Minimum Orders Check: ✗ FAILED (color: red)
+  → Required: 5 | Actual: 2
+Minimum Score Check: ✗ FAILED (color: red)
+  → Required: 70% | Actual: 50%
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✗ FRAUD CHECK FAILED - Order Blocked
+Advance payment required to proceed
+```
+
 ## Testing Checklist
 
 - [ ] Enable fraud prevention in admin settings
 - [ ] Configure API credentials
 - [ ] Set minimum score and order thresholds
+- [ ] Open browser console (F12) before testing
 - [ ] Test with customer phone number that passes checks
+- [ ] Verify console shows: phone, total deliveries, successful, cancelled/returned
+- [ ] Verify console shows: success score percentage
+- [ ] Verify console shows: minimum order check (✓ PASSED or ✗ FAILED)
+- [ ] Verify console shows: minimum score check (✓ PASSED or ✗ FAILED)
+- [ ] Verify console shows: "Order Allowed" or "Order Blocked" message
 - [ ] Test with customer phone number that fails checks
+- [ ] Verify order is blocked from being placed
 - [ ] Verify advance payment modal appears
+- [ ] Verify modal shows verification results
 - [ ] Complete advance payment with alternative method
 - [ ] Verify advance payment is recorded
 - [ ] Complete COD order after advance payment

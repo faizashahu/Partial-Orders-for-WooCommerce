@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fraud Prevention Console Demo</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-top: 0;
+        }
+        .button-group {
+            display: flex;
+            gap: 15px;
+            margin-top: 20px;
+        }
+        button {
+            flex: 1;
+            padding: 15px 20px;
+            font-size: 16px;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: all 0.3s;
+        }
+        .btn-pass {
+            background: #46b450;
+            color: white;
+        }
+        .btn-pass:hover {
+            background: #3a9940;
+        }
+        .btn-fail {
+            background: #dc3232;
+            color: white;
+        }
+        .btn-fail:hover {
+            background: #c32929;
+        }
+        .btn-bypass {
+            background: #f56e28;
+            color: white;
+        }
+        .btn-bypass:hover {
+            background: #d95f22;
+        }
+        .info {
+            background: #e7f3ff;
+            padding: 15px;
+            border-left: 4px solid #0073aa;
+            margin-top: 20px;
+            border-radius: 4px;
+        }
+        .info p {
+            margin: 0;
+            color: #0073aa;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Fraud Prevention Console Demo</h1>
+        <p>Click the buttons below to see different console log outputs. Open your browser console (F12) to view the results.</p>
+
+        <div class="button-group">
+            <button class="btn-pass" onclick="demoPassedCheck()">
+                ✓ Passed Check
+            </button>
+            <button class="btn-fail" onclick="demoFailedCheck()">
+                ✗ Failed Check
+            </button>
+            <button class="btn-bypass" onclick="demoBypassed()">
+                ⊘ Bypassed
+            </button>
+        </div>
+
+        <div class="info">
+            <p><strong>Note:</strong> These demos simulate the console output you'll see during actual checkout with fraud prevention enabled.</p>
+        </div>
+    </div>
+
+    <script>
+        function demoPassedCheck() {
+            console.clear();
+            console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #0073aa;');
+            console.log('%c[Fraud Prevention] API Response Received', 'color: #0073aa; font-weight: bold; font-size: 14px;');
+            console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #0073aa;');
+            console.log('%cPhone Number:', 'font-weight: bold;', '01712345678');
+            console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #0073aa;');
+            console.log('%cDelivery Statistics:', 'color: #0073aa; font-weight: bold;');
+            console.log('%cTotal Deliveries:', 'font-weight: bold;', 124);
+            console.log('%cSuccessful Deliveries:', 'font-weight: bold;', 122);
+            console.log('%cCancelled/Returned:', 'font-weight: bold;', 2);
+            console.log('%cSuccess Score:', 'font-weight: bold;', '98.39%');
+            console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #0073aa;');
+            console.log('%cRequired Thresholds:', 'color: #0073aa; font-weight: bold;');
+            console.log('%cMinimum Orders:', 'font-weight: bold;', 5);
+            console.log('%cMinimum Score:', 'font-weight: bold;', '70%');
+            console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #0073aa;');
+            console.log('%cValidation Results:', 'color: #0073aa; font-weight: bold;');
+            console.log('%cMinimum Orders Check:', 'font-weight: bold;', '✓ PASSED', '(color: #46b450)');
+            console.log('%c  → Required: 5 | Actual: 124', 'font-style: italic; color: #666;');
+            console.log('%cMinimum Score Check:', 'font-weight: bold;', '✓ PASSED', '(color: #46b450)');
+            console.log('%c  → Required: 70% | Actual: 98.39%', 'font-style: italic; color: #666;');
+            console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #0073aa;');
+            console.log('%c✓ FRAUD CHECK PASSED - Order Allowed', 'color: #46b450; font-weight: bold; font-size: 16px; background: #ecf7ed; padding: 5px 10px;');
+            console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #0073aa;');
+        }
+
+        function demoFailedCheck() {
+            console.clear();
+            console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #0073aa;');
+            console.log('%c[Fraud Prevention] API Response Received', 'color: #0073aa; font-weight: bold; font-size: 14px;');
+            console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #0073aa;');
+            console.log('%cPhone Number:', 'font-weight: bold;', '01798765432');
+            console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #0073aa;');
+            console.log('%cDelivery Statistics:', 'color: #0073aa; font-weight: bold;');
+            console.log('%cTotal Deliveries:', 'font-weight: bold;', 10);
+            console.log('%cSuccessful Deliveries:', 'font-weight: bold;', 4);
+            console.log('%cCancelled/Returned:', 'font-weight: bold;', 6);
+            console.log('%cSuccess Score:', 'font-weight: bold;', '40%');
+            console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #0073aa;');
+            console.log('%cRequired Thresholds:', 'color: #0073aa; font-weight: bold;');
+            console.log('%cMinimum Orders:', 'font-weight: bold;', 5);
+            console.log('%cMinimum Score:', 'font-weight: bold;', '70%');
+            console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #0073aa;');
+            console.log('%cValidation Results:', 'color: #0073aa; font-weight: bold;');
+            console.log('%cMinimum Orders Check:', 'font-weight: bold;', '✓ PASSED', '(color: #46b450)');
+            console.log('%c  → Required: 5 | Actual: 10', 'font-style: italic; color: #666;');
+            console.log('%cMinimum Score Check:', 'font-weight: bold;', '✗ FAILED', '(color: #dc3232)');
+            console.log('%c  → Required: 70% | Actual: 40%', 'font-style: italic; color: #666;');
+            console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #0073aa;');
+            console.log('%c✗ FRAUD CHECK FAILED - Order Blocked', 'color: #dc3232; font-weight: bold; font-size: 16px; background: #f9e2e2; padding: 5px 10px;');
+            console.log('%cAdvance payment required to proceed', 'color: #f56e28; font-style: italic;');
+            console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #0073aa;');
+        }
+
+        function demoBypassed() {
+            console.clear();
+            console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #0073aa;');
+            console.log('%c[Fraud Prevention] Check Bypassed', 'color: #f56e28; font-weight: bold; font-size: 14px;');
+            console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #0073aa;');
+            console.log('%cReason:', 'font-weight: bold;', 'Fraud prevention is disabled');
+            console.log('%c✓ Order Allowed', 'color: #46b450; font-weight: bold; font-size: 16px; background: #ecf7ed; padding: 5px 10px;');
+            console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #0073aa;');
+        }
+
+        // Auto-run demo on load
+        console.log('%c🛡️ Fraud Prevention System - Console Demo Loaded', 'color: #0073aa; font-weight: bold; font-size: 18px; padding: 10px;');
+        console.log('%cClick the buttons to see different console outputs', 'color: #666; font-style: italic;');
+    </script>
+</body>
+</html>

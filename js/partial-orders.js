@@ -152,27 +152,49 @@ jQuery(function ($) {
 
     let fraudCheckInProgress = false;
     let fraudCheckPassed = false;
+    let fraudCheckData = null;
 
-    $('form.checkout').on('checkout_place_order', function(e) {
-        const paymentMethod = $('input[name="payment_method"]:checked').val();
+    document.addEventListener('click', function(e) {
+        const btn = e.target.closest('#place_order, button.wc-block-components-checkout-place-order-button');
+
+        if (!btn) {
+            return;
+        }
+
+        const paymentMethod = $('input[name="payment_method"]:checked').val() ||
+                             document.querySelector('input[name="radio-control-wc-payment-method-options"]:checked')?.value;
 
         if (paymentMethod !== 'cod') {
-            return true;
+            console.log('%c[Fraud Prevention] Payment method is not COD, allowing order', 'color: #00a0d2; font-weight: bold;');
+            return;
         }
 
         if (fraudCheckPassed) {
-            return true;
+            console.log('%c[Fraud Prevention] Check already passed, allowing order', 'color: #46b450; font-weight: bold;');
+            return;
         }
 
         if (fraudCheckInProgress) {
-            return false;
+            e.preventDefault();
+            e.stopImmediatePropagation();
+            console.log('%c[Fraud Prevention] Check in progress, blocking order', 'color: #f56e28; font-weight: bold;');
+            return;
         }
 
-        const billingPhone = $('input[name="billing_phone"]').val();
+        const billingPhone = $('input[name="billing_phone"]').val() ||
+                            document.querySelector('input[id*="billing-phone"], input[type="tel"]')?.value ||
+                            '';
 
         if (!billingPhone) {
-            return true;
+            console.log('%c[Fraud Prevention] No billing phone found, allowing order', 'color: #00a0d2; font-weight: bold;');
+            return;
         }
+
+        e.preventDefault();
+        e.stopImmediatePropagation();
+
+        console.log('%c[Fraud Prevention] Starting fraud check...', 'color: #00a0d2; font-weight: bold;');
+        console.log('Phone number:', billingPhone);
 
         fraudCheckInProgress = true;
 
@@ -186,34 +208,93 @@ jQuery(function ($) {
             },
             success: function(response) {
                 if (response.success && response.data) {
-                    if (response.data.passed) {
+                    fraudCheckData = response.data;
+
+                    if (response.data.reason) {
+                        console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #0073aa;');
+                        console.log('%c[Fraud Prevention] Check Bypassed', 'color: #f56e28; font-weight: bold; font-size: 14px;');
+                        console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #0073aa;');
+                        console.log('%cReason:', 'font-weight: bold;', response.data.reason);
+                        console.log('%c✓ Order Allowed', 'color: #46b450; font-weight: bold; font-size: 16px; background: #ecf7ed; padding: 5px 10px;');
+                        console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #0073aa;');
                         fraudCheckPassed = true;
-                        $('form.checkout').submit();
+                        btn.click();
+                        return;
+                    }
+
+                    console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #0073aa;');
+                    console.log('%c[Fraud Prevention] API Response Received', 'color: #0073aa; font-weight: bold; font-size: 14px;');
+                    console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #0073aa;');
+                    console.log('%cPhone Number:', 'font-weight: bold;', response.data.phone || 'N/A');
+                    console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #0073aa;');
+                    console.log('%cDelivery Statistics:', 'color: #0073aa; font-weight: bold;');
+                    console.log('%cTotal Deliveries:', 'font-weight: bold;', response.data.total_parcels);
+                    console.log('%cSuccessful Deliveries:', 'font-weight: bold;', response.data.delivered);
+                    console.log('%cCancelled/Returned:', 'font-weight: bold;', (response.data.returned || (response.data.total_parcels - response.data.delivered)));
+                    console.log('%cSuccess Score:', 'font-weight: bold;', response.data.score + '%');
+                    console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #0073aa;');
+                    console.log('%cRequired Thresholds:', 'color: #0073aa; font-weight: bold;');
+                    console.log('%cMinimum Orders:', 'font-weight: bold;', response.data.minimum_orders);
+                    console.log('%cMinimum Score:', 'font-weight: bold;', response.data.minimum_score + '%');
+                    console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #0073aa;');
+                    console.log('%cValidation Results:', 'color: #0073aa; font-weight: bold;');
+
+                    const ordersPassed = response.data.total_parcels >= response.data.minimum_orders;
+                    const scorePassed = response.data.score >= response.data.minimum_score;
+
+                    console.log('%cMinimum Orders Check:', 'font-weight: bold;',
+                        ordersPassed ? '✓ PASSED' : '✗ FAILED',
+                        ordersPassed ? '(color: #46b450)' : '(color: #dc3232)'
+                    );
+                    console.log('%c  → Required: ' + response.data.minimum_orders + ' | Actual: ' + response.data.total_parcels,
+                        'font-style: italic; color: #666;'
+                    );
+
+                    console.log('%cMinimum Score Check:', 'font-weight: bold;',
+                        scorePassed ? '✓ PASSED' : '✗ FAILED',
+                        scorePassed ? '(color: #46b450)' : '(color: #dc3232)'
+                    );
+                    console.log('%c  → Required: ' + response.data.minimum_score + '% | Actual: ' + response.data.score + '%',
+                        'font-style: italic; color: #666;'
+                    );
+                    console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #0073aa;');
+
+                    if (response.data.passed) {
+                        console.log('%c✓ FRAUD CHECK PASSED - Order Allowed', 'color: #46b450; font-weight: bold; font-size: 16px; background: #ecf7ed; padding: 5px 10px;');
+                        console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #0073aa;');
+                        fraudCheckPassed = true;
+                        btn.click();
                     } else {
-                        showAdvancePaymentModal();
+                        console.log('%c✗ FRAUD CHECK FAILED - Order Blocked', 'color: #dc3232; font-weight: bold; font-size: 16px; background: #f9e2e2; padding: 5px 10px;');
+                        console.log('%cAdvance payment required to proceed', 'color: #f56e28; font-style: italic;');
+                        console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #0073aa;');
+                        showAdvancePaymentModal(response.data);
                     }
                 } else {
+                    console.log('%c[Fraud Prevention] API check disabled or failed, allowing order', 'color: #f56e28; font-weight: bold;');
                     fraudCheckPassed = true;
-                    $('form.checkout').submit();
+                    btn.click();
                 }
             },
-            error: function() {
+            error: function(xhr, status, error) {
+                console.log('%c[Fraud Prevention] API error occurred, allowing order', 'color: #dc3232; font-weight: bold;');
+                console.error('Error details:', error);
                 fraudCheckPassed = true;
-                $('form.checkout').submit();
+                btn.click();
             },
             complete: function() {
                 fraudCheckInProgress = false;
             }
         });
+    }, true);
 
-        return false;
-    });
-
-    function showAdvancePaymentModal() {
+    function showAdvancePaymentModal(checkData) {
         if ($('#fps-payment-modal').length) {
             $('#fps-payment-modal').show();
             return;
         }
+
+        checkData = checkData || fraudCheckData || {};
 
         const shippingTotal = parseFloat($('.shipping .woocommerce-Price-amount').text().replace(/[^0-9.]/g, '')) || 0;
         const customCharge = wcPartialOrders.custom_cod_charge;
@@ -240,10 +321,30 @@ jQuery(function ($) {
             gatewayOptions += `<option value="${gateway.value}">${gateway.label}</option>`;
         });
 
+        let checkDetailsHTML = '';
+        if (checkData && checkData.total_parcels !== undefined) {
+            checkDetailsHTML = `
+                <div style="background:#fff3cd; border-left:4px solid #f56e28; padding:12px 15px; margin-bottom:20px; border-radius:4px;">
+                    <p style="margin:0 0 8px 0; font-size:13px; color:#856404; font-weight:600;">Verification Results:</p>
+                    <p style="margin:0; font-size:12px; color:#856404; line-height:1.6;">
+                        Total Orders: <strong>${checkData.total_parcels}</strong> |
+                        Successful: <strong>${checkData.delivered}</strong> |
+                        Success Rate: <strong>${checkData.score}%</strong>
+                    </p>
+                    <p style="margin:8px 0 0 0; font-size:12px; color:#856404;">
+                        Required: <strong>${checkData.minimum_orders}+ orders</strong> with <strong>${checkData.minimum_score}%+ success rate</strong>
+                    </p>
+                </div>
+            `;
+        }
+
         const modalHTML = `
             <div id="fps-payment-modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:9999;">
                 <div style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); background:white; padding:30px; border-radius:8px; max-width:500px; width:90%; box-shadow:0 4px 20px rgba(0,0,0,0.3);">
                     <h2 style="margin-top:0; color:#333;">Advance Payment Required</h2>
+
+                    ${checkDetailsHTML}
+
                     <p style="color:#666;">Please pay the delivery charges in advance to proceed with your order.</p>
                     <p style="font-size:18px; font-weight:bold; color:#0073aa;">Amount to pay: ${currencySymbol}${chargeAmount.toFixed(2)}</p>
 

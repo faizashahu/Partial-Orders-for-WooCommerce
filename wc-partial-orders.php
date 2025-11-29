@@ -673,7 +673,10 @@ class WC_Partial_Orders {
         $fps_enabled = get_option('fps_enabled', '0');
 
         if ($fps_enabled !== '1') {
-            wp_send_json_success(['passed' => true]);
+            wp_send_json_success([
+                'passed' => true,
+                'reason' => 'Fraud prevention is disabled'
+            ]);
         }
 
         $api_key = get_option('fps_api_key', '');
@@ -682,7 +685,10 @@ class WC_Partial_Orders {
         $minimum_orders = (int) get_option('fps_minimum_orders', 1);
 
         if (empty($api_key) || empty($api_secret)) {
-            wp_send_json_success(['passed' => true]);
+            wp_send_json_success([
+                'passed' => true,
+                'reason' => 'API credentials not configured'
+            ]);
         }
 
         $response = wp_remote_post('https://nirvor.app/api/v1/search', [
@@ -696,18 +702,26 @@ class WC_Partial_Orders {
         ]);
 
         if (is_wp_error($response)) {
-            wp_send_json_success(['passed' => true]);
+            wp_send_json_success([
+                'passed' => true,
+                'reason' => 'API connection failed: ' . $response->get_error_message()
+            ]);
         }
 
         $body = wp_remote_retrieve_body($response);
         $result = json_decode($body, true);
 
         if (!isset($result['success']) || !$result['success']) {
-            wp_send_json_success(['passed' => true]);
+            $error_msg = isset($result['error']) ? $result['error'] : 'Unknown API error';
+            wp_send_json_success([
+                'passed' => true,
+                'reason' => 'API returned error: ' . $error_msg
+            ]);
         }
 
         $total_parcels = isset($result['overall']['total_parcels']) ? (int) $result['overall']['total_parcels'] : 0;
         $delivered = isset($result['overall']['delivered']) ? (int) $result['overall']['delivered'] : 0;
+        $returned = isset($result['overall']['returned']) ? (int) $result['overall']['returned'] : 0;
 
         $score = $total_parcels > 0 ? ($delivered / $total_parcels) * 100 : 0;
 
@@ -717,9 +731,11 @@ class WC_Partial_Orders {
             'passed' => $passed,
             'total_parcels' => $total_parcels,
             'delivered' => $delivered,
+            'returned' => $returned,
             'score' => round($score, 2),
             'minimum_score' => $minimum_score,
-            'minimum_orders' => $minimum_orders
+            'minimum_orders' => $minimum_orders,
+            'phone' => $phone
         ]);
     }
 
