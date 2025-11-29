@@ -1,28 +1,30 @@
 // ===================================================================
-// FRAUD PREVENTION SYSTEM - MUST RUN FIRST, OUTSIDE JQUERY WRAPPER
+// FRAUD PREVENTION SYSTEM - HANDLES BOTH CLASSIC AND BLOCKS CHECKOUT
 // ===================================================================
 (function() {
     'use strict';
+
+    console.log('%c[Fraud Prevention] Script loaded', 'color: #0073aa; font-weight: bold;');
 
     let fraudCheckInProgress = false;
     let fraudCheckPassed = false;
     let fraudCheckData = null;
 
-    // Global click handler in CAPTURE phase - blocks ALL clicks on Place Order button
+    // ============================================
+    // CLASSIC CHECKOUT - Button click interception
+    // ============================================
     document.addEventListener('click', function(e) {
-        // Check if click is on Place Order button
         var btn = e.target.closest('#place_order');
         if (!btn) {
             btn = e.target.closest('button.wc-block-components-checkout-place-order-button');
         }
 
         if (!btn) {
-            return; // Not the place order button, allow click
+            return;
         }
 
         console.log('%c[Fraud Prevention] Place Order button clicked', 'color: #0073aa; font-weight: bold;');
 
-        // Check payment method
         var paymentMethod = null;
         var codRadio = document.querySelector('input[name="payment_method"][value="cod"]:checked');
         if (codRadio) {
@@ -34,7 +36,6 @@
             }
         }
 
-        // If not COD, allow order
         if (paymentMethod !== 'cod') {
             console.log('%c[Fraud Prevention] Payment method is not COD (' + (paymentMethod || 'unknown') + '), allowing order', 'color: #00a0d2; font-weight: bold;');
             return;
@@ -42,13 +43,11 @@
 
         console.log('%c[Fraud Prevention] COD payment detected, checking fraud prevention', 'color: #0073aa; font-weight: bold;');
 
-        // If already passed, allow
         if (fraudCheckPassed) {
             console.log('%c[Fraud Prevention] Check already passed, allowing order', 'color: #46b450; font-weight: bold;');
             return;
         }
 
-        // If check in progress, block
         if (fraudCheckInProgress) {
             e.preventDefault();
             e.stopImmediatePropagation();
@@ -56,7 +55,6 @@
             return;
         }
 
-        // Get phone number
         var phoneInput = document.querySelector('input[name="billing_phone"]');
         var billingPhone = phoneInput ? phoneInput.value : '';
 
@@ -65,16 +63,122 @@
             return;
         }
 
-        // BLOCK THE ORDER - Must check fraud first
         e.preventDefault();
         e.stopImmediatePropagation();
 
-        console.log('%c[Fraud Prevention] Starting fraud check...', 'color: #0073aa; font-weight: bold;');
+        console.log('%c[Fraud Prevention] BLOCKING ORDER - Starting fraud check...', 'color: #dc3232; font-weight: bold;');
         console.log('Phone number:', billingPhone);
 
+        performFraudCheck(billingPhone, function(passed, data) {
+            if (passed) {
+                fraudCheckPassed = true;
+                btn.click();
+            } else {
+                showAdvancePaymentModal(data);
+            }
+        });
+
+    }, true);
+
+    // ============================================
+    // BLOCKS CHECKOUT - Intercept Store API
+    // ============================================
+    function interceptBlocksCheckout() {
+        if (typeof wp === 'undefined' || !wp.data) {
+            setTimeout(interceptBlocksCheckout, 100);
+            return;
+        }
+
+        console.log('%c[Fraud Prevention] Setting up Blocks checkout interception', 'color: #0073aa; font-weight: bold;');
+
+        // Hook into the checkout processing
+        var checkoutStore = wp.data.select('wc/store/checkout');
+
+        if (checkoutStore) {
+            console.log('%c[Fraud Prevention] Blocks checkout detected', 'color: #0073aa; font-weight: bold;');
+        }
+
+        // Intercept fetch requests to /wc/store/v1/checkout
+        var originalFetch = window.fetch;
+        window.fetch = function() {
+            var url = arguments[0];
+            var options = arguments[1] || {};
+
+            // Check if this is a checkout request
+            if (typeof url === 'string' && url.includes('/wc/store/v1/checkout')) {
+                console.log('%c[Fraud Prevention] Intercepted Blocks checkout request', 'color: #0073aa; font-weight: bold;');
+
+                // Parse the request body to check payment method
+                var requestBody = null;
+                if (options.body) {
+                    try {
+                        requestBody = JSON.parse(options.body);
+                    } catch (e) {
+                        requestBody = options.body;
+                    }
+                }
+
+                var paymentMethod = requestBody && requestBody.payment_method ? requestBody.payment_method : null;
+                var billingPhone = requestBody && requestBody.billing_address && requestBody.billing_address.phone ? requestBody.billing_address.phone : '';
+
+                console.log('%c[Fraud Prevention] Payment method:', 'font-weight: bold;', paymentMethod);
+                console.log('%c[Fraud Prevention] Billing phone:', 'font-weight: bold;', billingPhone);
+
+                if (paymentMethod !== 'cod') {
+                    console.log('%c[Fraud Prevention] Not COD, allowing checkout', 'color: #00a0d2; font-weight: bold;');
+                    return originalFetch.apply(this, arguments);
+                }
+
+                if (fraudCheckPassed) {
+                    console.log('%c[Fraud Prevention] Check already passed, allowing checkout', 'color: #46b450; font-weight: bold;');
+                    return originalFetch.apply(this, arguments);
+                }
+
+                if (!billingPhone) {
+                    console.log('%c[Fraud Prevention] No phone number, allowing checkout', 'color: #00a0d2; font-weight: bold;');
+                    return originalFetch.apply(this, arguments);
+                }
+
+                console.log('%c[Fraud Prevention] BLOCKING BLOCKS CHECKOUT - Checking fraud...', 'color: #dc3232; font-weight: bold;');
+
+                // Return a promise that waits for fraud check
+                return new Promise(function(resolve, reject) {
+                    performFraudCheck(billingPhone, function(passed, data) {
+                        if (passed) {
+                            fraudCheckPassed = true;
+                            console.log('%c[Fraud Prevention] Check passed, proceeding with checkout', 'color: #46b450; font-weight: bold;');
+                            originalFetch.apply(window, arguments).then(resolve).catch(reject);
+                        } else {
+                            console.log('%c[Fraud Prevention] Check failed, showing modal', 'color: #dc3232; font-weight: bold;');
+                            showAdvancePaymentModal(data);
+
+                            // Reject with a user-friendly error
+                            reject({
+                                message: 'Please complete advance payment to proceed with COD',
+                                code: 'fraud_check_failed'
+                            });
+                        }
+                    });
+                });
+            }
+
+            return originalFetch.apply(this, arguments);
+        };
+    }
+
+    // Start intercepting blocks checkout
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', interceptBlocksCheckout);
+    } else {
+        interceptBlocksCheckout();
+    }
+
+    // ============================================
+    // FRAUD CHECK FUNCTION
+    // ============================================
+    function performFraudCheck(billingPhone, callback) {
         fraudCheckInProgress = true;
 
-        // Make AJAX request
         var xhr = new XMLHttpRequest();
         xhr.open('POST', wcPartialOrders.ajax_url, true);
         xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
@@ -89,7 +193,6 @@
                     if (response.success && response.data) {
                         fraudCheckData = response.data;
 
-                        // Check if bypassed
                         if (response.data.reason) {
                             console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #0073aa;');
                             console.log('%c[Fraud Prevention] Check Bypassed', 'color: #f56e28; font-weight: bold; font-size: 14px;');
@@ -97,12 +200,10 @@
                             console.log('%cReason:', 'font-weight: bold;', response.data.reason);
                             console.log('%c✓ Order Allowed', 'color: #46b450; font-weight: bold; font-size: 16px; background: #ecf7ed; padding: 5px 10px;');
                             console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #0073aa;');
-                            fraudCheckPassed = true;
-                            btn.click();
+                            callback(true, response.data);
                             return;
                         }
 
-                        // Display full check results
                         console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #0073aa;');
                         console.log('%c[Fraud Prevention] API Response Received', 'color: #0073aa; font-weight: bold; font-size: 14px;');
                         console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #0073aa;');
@@ -143,37 +244,32 @@
                         if (response.data.passed) {
                             console.log('%c✓ FRAUD CHECK PASSED - Order Allowed', 'color: #46b450; font-weight: bold; font-size: 16px; background: #ecf7ed; padding: 5px 10px;');
                             console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #0073aa;');
-                            fraudCheckPassed = true;
-                            btn.click();
+                            callback(true, response.data);
                         } else {
                             console.log('%c✗ FRAUD CHECK FAILED - Order Blocked', 'color: #dc3232; font-weight: bold; font-size: 16px; background: #f9e2e2; padding: 5px 10px;');
                             console.log('%cAdvance payment required to proceed', 'color: #f56e28; font-style: italic;');
                             console.log('%c━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', 'color: #0073aa;');
-                            showAdvancePaymentModal(response.data);
+                            callback(false, response.data);
                         }
                     } else {
                         console.log('%c[Fraud Prevention] Invalid API response, allowing order', 'color: #f56e28; font-weight: bold;');
-                        fraudCheckPassed = true;
-                        btn.click();
+                        callback(true, null);
                     }
                 } catch (error) {
                     console.log('%c[Fraud Prevention] Error parsing response, allowing order', 'color: #dc3232; font-weight: bold;');
                     console.error(error);
-                    fraudCheckPassed = true;
-                    btn.click();
+                    callback(true, null);
                 }
             } else {
                 console.log('%c[Fraud Prevention] API request failed, allowing order', 'color: #dc3232; font-weight: bold;');
-                fraudCheckPassed = true;
-                btn.click();
+                callback(true, null);
             }
         };
 
         xhr.onerror = function() {
             fraudCheckInProgress = false;
             console.log('%c[Fraud Prevention] Network error, allowing order', 'color: #dc3232; font-weight: bold;');
-            fraudCheckPassed = true;
-            btn.click();
+            callback(true, null);
         };
 
         var formData = 'action=check_fraud_prevention';
@@ -181,11 +277,12 @@
         formData += '&phone=' + encodeURIComponent(billingPhone);
 
         xhr.send(formData);
+    }
 
-    }, true); // CAPTURE PHASE - critical to intercept before other handlers
-
+    // ============================================
+    // MODAL FUNCTION
+    // ============================================
     function showAdvancePaymentModal(checkData) {
-        // Wait for jQuery to be available
         if (typeof jQuery === 'undefined') {
             setTimeout(function() {
                 showAdvancePaymentModal(checkData);
@@ -291,7 +388,6 @@
 // PARTIAL ORDERS - ORIGINAL FUNCTIONALITY
 // ===================================================================
 jQuery(function ($) {
-    // Ensure this script only runs on the checkout page
     if (!$('form.checkout').length) return;
 
     let timer = null;
@@ -302,19 +398,15 @@ jQuery(function ($) {
         const formData = new FormData($('form.checkout')[0]);
         formData.append('action', 'save_partial_order');
         formData.append('nonce', wcPartialOrders.nonce);
-
         if (orderKey) {
             formData.append('order_key', orderKey);
         }
-
         return formData;
     }
 
     function saveFormData(formData) {
         if (isProcessing) return;
-
         isProcessing = true;
-
         $.ajax({
             url: wcPartialOrders.ajax_url,
             type: 'POST',
@@ -340,13 +432,7 @@ jQuery(function ($) {
     }
 
     function hasRelevantData() {
-        const requiredFields = [
-            'billing_first_name',
-            'billing_last_name',
-            'billing_email',
-            'billing_address_1',
-        ];
-
+        const requiredFields = ['billing_first_name', 'billing_last_name', 'billing_email', 'billing_address_1'];
         let hasData = false;
         for (let field of requiredFields) {
             if ($(`[name="${field}"]`).val()) {
@@ -354,7 +440,6 @@ jQuery(function ($) {
                 break;
             }
         }
-
         return hasData && WC_CHECKOUT_DATA_CHANGED;
     }
 
@@ -362,7 +447,6 @@ jQuery(function ($) {
 
     $('form.checkout').on('change keyup', 'input, select, textarea', function () {
         WC_CHECKOUT_DATA_CHANGED = true;
-
         clearTimeout(timer);
         timer = setTimeout(function () {
             if (hasRelevantData()) {
@@ -375,7 +459,6 @@ jQuery(function ($) {
 
     $(document.body).on('updated_cart_totals updated_checkout', function() {
         WC_CHECKOUT_DATA_CHANGED = true;
-
         clearTimeout(timer);
         timer = setTimeout(function () {
             if (hasRelevantData()) {
